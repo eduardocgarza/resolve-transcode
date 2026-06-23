@@ -1,8 +1,8 @@
 # resolve-transcode
 
-`resolve-transcode` converts OBS `.mkv` recordings into `.mov` files that import cleanly into DaVinci Resolve on Linux.
+`resolve-transcode` converts OBS `.mkv` recordings into `.mov` files that import cleanly into DaVinci Resolve Free on Linux.
 
-It is a small Bash wrapper around `ffmpeg`. The point is not convenience alone. It exists because OBS on Ubuntu can produce perfectly valid recordings that are still a bad fit for DaVinci Resolve Free on Linux.
+It is a small Bash wrapper around `ffmpeg`. The point is not convenience alone. It exists because OBS on Ubuntu can produce a perfectly valid recording that DaVinci Resolve Free on Linux still cannot fully read.
 
 The default output is:
 
@@ -20,13 +20,17 @@ Audio: AAC
 Container: MKV
 ```
 
-## Why this exists
+## The actual problem
 
-OBS is good at recording. On Linux, OBS can use NVIDIA NVENC to record H.264 or H.265 with low CPU usage. OBS also recommends MKV for safer recording because MKV is less likely to corrupt the whole recording if OBS or the system crashes.
+OBS is not creating a broken file.
 
-The bottleneck is what happens next.
+The problem is the specific format that OBS commonly creates on Ubuntu/NVIDIA:
 
-DaVinci Resolve on Linux does not have the same codec support as Resolve on macOS or Windows. Blackmagic's supported codec list separates Linux under "Rocky Linux 8.6 (CUDA)", and the Linux table marks H.264/H.265 support differently than macOS and Windows. In practical terms, the free Linux version is not a safe target for OBS-style H.264/AAC recordings, especially when those recordings are coming from NVIDIA/NVENC workflows.
+```text
+Container: MKV
+Video:     H.264 or H.265
+Audio:     AAC
+```
 
 On one real recording from this machine, `ffprobe` reported:
 
@@ -36,12 +40,41 @@ Video:    H.264 High, yuv420p, 1920x1080, 30 fps
 Audio:    AAC LC, 48000 Hz, stereo
 ```
 
-That is a normal OBS file. It is not a "bad" file. The mismatch is between the recording format and Resolve Free on Linux.
+That is a normal OBS file. VLC can play it. `ffmpeg` can read it. The file itself is valid.
+
+The problem is DaVinci Resolve Free on Linux:
+
+1. **H.264/H.265 video is Studio-only on Linux.** In Blackmagic's DaVinci Resolve 20 supported codec list, the Linux section is listed as "Rocky Linux 8.6 (CUDA)". In that Linux table, the H.264 and H.265 rows for `mov`, `mkv`, and `mp4` say decode is **Studio Only** with GPU acceleration on NVIDIA graphics.
+2. **AAC audio is not supported in the Linux audio table.** The Linux audio section lists `aac/m4a` under Advanced Audio Coding, but decode and encode are both marked `-`. For embedded audio in video containers, the Linux table lists Linear PCM, MP3, and FLAC based on container. It does not list AAC there.
+3. **MKV is not the whole problem.** OBS recommends MKV because it is safer while recording. Blackmagic also lists MKV in the Linux table. The bigger problem is what is inside the MKV: H.264/H.265 video plus AAC audio.
+
+So the failure is not:
+
+```text
+OBS made a bad file
+```
+
+The failure is:
+
+```text
+Resolve Free on Linux does not fully support the video/audio codecs inside the OBS file
+```
+
+That can show up as:
+
+- the clip does not import,
+- the clip imports but the audio is missing,
+- the clip imports but playback/scrubbing is broken,
+- remuxing from MKV to MP4 still does not fix it.
+
+That is why remuxing is not enough. Changing `recording.mkv` to `recording.mp4` may change the container, but it does not change H.264/H.265 video or AAC audio.
+
+If you use DaVinci Resolve Studio on Linux with supported NVIDIA hardware, the H.264/H.265 video problem may be different because Studio has extra decode support. This tool is mainly for the Resolve Free on Linux workflow, where converting to DNxHR video and Linear PCM audio gives Resolve a supported editing file.
 
 `resolve-transcode` fixes the handoff by converting the file into editing-friendly media:
 
 ```text
-H.264/AAC MKV from OBS
+H.264 or H.265 + AAC in MKV from OBS
         |
         v
 DNxHR/PCM MOV for DaVinci Resolve
@@ -233,14 +266,16 @@ ffprobe -hide_banner "recording_resolve.mov"
 
 ## Research notes
 
-The bottleneck that led to this tool is the Linux Resolve handoff:
+The exact bottleneck that led to this tool is the Resolve Free on Linux codec support gap:
 
 - OBS recommends MKV for safer recording and provides built-in remuxing when a different container is needed.
 - OBS supports NVIDIA NVENC on Linux.
+- A real OBS file from this workflow was H.264 video plus AAC audio inside MKV.
 - Blackmagic's Resolve codec list treats Linux separately as "Rocky Linux 8.6 (CUDA)".
-- On Linux, H.264/H.265 support is not equivalent to macOS/Windows and is tied to Studio/NVIDIA support in the codec list.
-- AAC audio is not a good target for Resolve Linux; PCM is safer.
-- DNxHR video and PCM audio are listed as supported formats for Resolve's Linux profile.
+- In that Linux table, H.264/H.265 decode for `mov`, `mkv`, and `mp4` is marked Studio Only.
+- In that Linux audio table, `aac/m4a` decode is marked unsupported.
+- DNxHR video and Linear PCM audio are listed as supported in the Linux profile.
+- Therefore the fix is to transcode the streams, not merely rename or remux the container.
 
 Sources:
 
