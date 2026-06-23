@@ -1,0 +1,34 @@
+# OS/editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+.cache/
+
+# Local environment files
+.env
+.env.*
+
+# Generated media files
+# This repo should track the tool and docs, not large OBS/Resolve outputs.
+*.mkv
+*.mov
+*.mp4
+*.m4v
+*.avi
+*.mxf
+*.webm
+*.wav
+*.aiff
+*.flac
+
+# DaVinci Resolve cache/proxy output
+CacheClip/
+ProxyMedia/
+OptimizedMedia/

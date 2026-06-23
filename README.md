@@ -47,7 +47,7 @@ H.264/AAC MKV from OBS
 DNxHR/PCM MOV for DaVinci Resolve
 ```
 
-## Install
+## Quick Setup
 
 Clone this repo, then copy the command into `~/.local/bin`:
 
@@ -68,6 +68,8 @@ resolve-transcode --help
 ```
 
 If `command -v` does not print `~/.local/bin/resolve-transcode`, make sure `~/.local/bin` is on your `PATH`.
+
+For the full setup explanation, including how `PATH` works, how to fix shell lookup problems, and how to update the installed command, see [SETUP.md](./SETUP.md).
 
 ## Requirements
 
