@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  resolve-transcode INPUT.mkv
+  resolve-transcode INPUT.mkv OUTPUT.mov
+  resolve-transcode -o OUTPUT.mov INPUT.mkv
+  resolve-transcode FILE1.mkv FILE2.mkv ...
+
+Converts OBS recordings to DaVinci Resolve-friendly MOV files:
+  video: DNxHR HQ
+  audio: PCM 16-bit
+
+Options:
+  --hq          DNxHR HQ, default for normal OBS recordings
+  --sq          DNxHR SQ, smaller files, lower quality
+  --hqx         DNxHR HQX, larger, for 10-bit/HDR sources
+  -f, --force   overwrite existing output files
+  -o, --output  output path, only valid with one input
+  -h, --help    show this help
+EOF
+}
+
+profile="dnxhr_hq"
+pix_fmt="yuv422p"
+force=0
+output=""
+inputs=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --hq)
+      profile="dnxhr_hq"
+      pix_fmt="yuv422p"
+      shift
+      ;;
+    --sq)
+      profile="dnxhr_sq"
+      pix_fmt="yuv422p"
+      shift
+      ;;
+    --hqx)
+      profile="dnxhr_hqx"
+      pix_fmt="yuv422p10le"
+      shift
+      ;;
+    -f|--force)
+      force=1
+      shift
+      ;;
+    -o|--output)
+      if [[ $# -lt 2 ]]; then
+        echo "resolve-transcode: missing output path after $1" >&2
+        exit 2
+      fi
+      output="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        inputs+=("$1")
+        shift
+      done
+      ;;
+    -*)
+      echo "resolve-transcode: unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      inputs+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ ${#inputs[@]} -eq 0 ]]; then
+  usage >&2
+  exit 2
+fi
+
+if [[ -n "$output" && ${#inputs[@]} -ne 1 ]]; then
+  echo "resolve-transcode: -o/--output can only be used with one input file" >&2
+  exit 2
+fi
+
+if [[ ${#inputs[@]} -eq 2 && -z "$output" && "${inputs[1],,}" == *.mov ]]; then
+  output="${inputs[1]}"
+  inputs=("${inputs[0]}")
+fi
+
+for input in "${inputs[@]}"; do
+  if [[ ! -f "$input" ]]; then
+    echo "resolve-transcode: input file not found: $input" >&2
+    exit 1
+  fi
+
+  if [[ -n "$output" ]]; then
+    out="$output"
+  else
+    dir="$(dirname -- "$input")"
+    base="$(basename -- "$input")"
+    stem="${base%.*}"
+    out="$dir/${stem}_resolve.mov"
+  fi
+
+  if [[ -e "$out" && "$force" -ne 1 ]]; then
+    echo "resolve-transcode: output already exists: $out" >&2
+    echo "Use -f to overwrite it." >&2
+    exit 1
+  fi
+
+  mkdir -p -- "$(dirname -- "$out")"
+
+  ffmpeg_args=()
+  if [[ "$force" -eq 1 ]]; then
+    ffmpeg_args+=("-y")
+  else
+    ffmpeg_args+=("-n")
+  fi
+
+  echo "Converting: $input"
+  echo "Output:     $out"
+  echo "Profile:    $profile"
+
+  ffmpeg "${ffmpeg_args[@]}" \
+    -hide_banner \
+    -i "$input" \
+    -c:v dnxhd \
+    -profile:v "$profile" \
+    -pix_fmt "$pix_fmt" \
+    -c:a pcm_s16le \
+    "$out"
+done
